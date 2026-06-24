@@ -1,0 +1,66 @@
+version: 2
+
+models:
+  - name: mart_hr_executive_overview
+    description: "Executive KPI table for HR leadership."
+    columns:
+      - name: generated_at
+        tests:
+          - not_null
+      - name: total_jobs
+        tests:
+          - not_null
+      - name: total_applications
+        tests:
+          - not_null
+      - name: recruiter_sla_compliance_rate
+        tests:
+          - not_null
+
+  - name: mart_recruitment_funnel
+    description: "Recruitment funnel showing how many applications reached each stage."
+    columns:
+      - name: stage_name
+        tests:
+          - not_null
+      - name: applications_reached
+        tests:
+          - not_null
+
+  - name: mart_recruiter_performance
+    description: "Recruiter performance and SLA compliance by recruiter, stage, office and department."
+    columns:
+      - name: recruiter_id
+        tests:
+          - not_null
+      - name: recruiter_name
+        tests:
+          - not_null
+      - name: stage_name
+        tests:
+          - not_null
+      - name: total_cases
+        tests:
+          - not_null
+      - name: sla_compliance_rate
+        tests:
+          - not_null
+
+  - name: mart_sla_breaches
+    description: "Application-level SLA breaches for recruiter-owned stages."
+    columns:
+      - name: application_id
+        tests:
+          - not_null
+      - name: recruiter_name
+        tests:
+          - not_null
+      - name: stage_name
+        tests:
+          - not_null
+      - name: duration_days
+        tests:
+          - not_null
+      - name: sla_target_days
+        tests:
+          - not_null

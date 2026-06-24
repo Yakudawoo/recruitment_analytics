@@ -1,0 +1,111 @@
+version: 2
+
+models:
+  - name: dim_job
+    description: "Job dimension built from Greenhouse job data."
+    columns:
+      - name: job_id
+        tests:
+          - not_null
+          - unique
+      - name: job_name
+        tests:
+          - not_null
+      - name: job_status
+        tests:
+          - not_null
+
+  - name: dim_candidate
+    description: "Candidate dimension built from Greenhouse candidate data."
+    columns:
+      - name: candidate_id
+        tests:
+          - not_null
+          - unique
+      - name: candidate_full_name
+        tests:
+          - not_null
+
+  - name: dim_recruiter
+    description: "Recruiter dimension consolidated from jobs and candidates."
+    columns:
+      - name: recruiter_id
+        tests:
+          - not_null
+          - unique
+      - name: recruiter_name
+        tests:
+          - not_null
+
+  - name: dim_office
+    description: "Office dimension."
+    columns:
+      - name: office_id
+        tests:
+          - not_null
+          - unique
+      - name: office_name
+        tests:
+          - not_null
+
+  - name: dim_department
+    description: "Department dimension."
+    columns:
+      - name: department_id
+        tests:
+          - not_null
+          - unique
+      - name: department_name
+        tests:
+          - not_null
+
+  - name: fact_application
+    description: "Application fact table. One row per application."
+    columns:
+      - name: application_id
+        tests:
+          - not_null
+          - unique
+      - name: candidate_id
+        tests:
+          - not_null
+      - name: job_id
+        tests:
+          - not_null
+      - name: application_status
+        tests:
+          - not_null
+
+  - name: fact_offer
+    description: "Offer fact table. One row per offer."
+    columns:
+      - name: offer_id
+        tests:
+          - not_null
+          - unique
+      - name: application_id
+        tests:
+          - not_null
+      - name: offer_status
+        tests:
+          - not_null
+
+  - name: fact_stage_transition
+    description: "Stage transition fact table used to measure recruitment process duration and recruiter SLA compliance."
+    columns:
+      - name: stage_transition_id
+        tests:
+          - not_null
+          - unique
+      - name: application_id
+        tests:
+          - not_null
+      - name: stage_name
+        tests:
+          - not_null
+      - name: stage_started_at
+        tests:
+          - not_null
+      - name: stage_ended_at
+        tests:
+          - not_null

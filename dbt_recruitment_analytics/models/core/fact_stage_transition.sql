@@ -85,4 +85,19 @@ final as (
 
 )
 
-select * from final
+select
+    farm_fingerprint(
+        concat(
+            cast(application_id as string),
+            '|',
+            coalesce(stage_name, ''),
+            '|',
+            coalesce(cast(stage_started_at as string), ''),
+            '|',
+            coalesce(cast(stage_ended_at as string), '')
+        )
+    ) as stage_transition_id,
+
+    *
+
+from final
