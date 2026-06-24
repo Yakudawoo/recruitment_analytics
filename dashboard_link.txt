@@ -1,6 +1,9 @@
 Recruitment Analytics Dashboard Demo
 
-Hugging Face Space:
+Direct live dashboard:
+https://ok-fintech-recruitment-analytics-dashboard.hf.space
+
+Hugging Face Space page:
 https://huggingface.co/spaces/OK-Fintech/recruitment-analytics-dashboard
 
 GitHub repository:
@@ -8,3 +11,5 @@ https://github.com/Yakudawoo/recruitment_analytics.git
 
 Note:
 The dashboard reads live BigQuery mart tables through a dedicated read-only service account.
+
+The Hugging Face Space may take a few seconds to wake up on first load. If the page appears blank, please refresh once or wait briefly.
