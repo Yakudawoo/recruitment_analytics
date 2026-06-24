@@ -1,0 +1,25 @@
+name: recruitment_analytics
+version: '1.0.0'
+config-version: 2
+
+profile: recruitment_analytics
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  recruitment_analytics:
+    staging:
+      +materialized: view
+      +schema: "{{ env_var('BQ_STAGING_DATASET') }}"
+    core:
+      +materialized: table
+      +schema: "{{ env_var('BQ_CORE_DATASET') }}"
+    marts:
+      +materialized: table
+      +schema: "{{ env_var('BQ_MARTS_DATASET') }}"

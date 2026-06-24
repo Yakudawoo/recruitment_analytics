@@ -1,0 +1,14 @@
+recruitment_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: dbt_recruitment_analytics
+      location: EU
+      threads: 4
+      timeout_seconds: 300
+      priority: interactive
+      retries: 1
+      maximum_bytes_billed: 1000000000

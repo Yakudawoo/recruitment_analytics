@@ -1,0 +1,51 @@
+version: 2
+
+sources:
+  - name: greenhouse_raw
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: raw_greenhouse
+    description: "Raw Greenhouse data loaded from API and webhook payloads."
+
+    tables:
+      - name: raw_greenhouse_jobs
+        description: "Raw job data extracted from Greenhouse API."
+        columns:
+          - name: ghjb_job_id
+            tests:
+              - not_null
+              - unique
+
+      - name: raw_greenhouse_openings
+        description: "Raw job opening data extracted from Greenhouse API."
+
+      - name: raw_greenhouse_candidates
+        description: "Raw candidate data extracted from Greenhouse API."
+        columns:
+          - name: ghca_candidate_id
+            tests:
+              - not_null
+              - unique
+
+      - name: raw_greenhouse_applications
+        description: "Raw application data extracted from Greenhouse API."
+        columns:
+          - name: ghap_application_id
+            tests:
+              - not_null
+              - unique
+
+      - name: raw_greenhouse_offers
+        description: "Raw offer data extracted from Greenhouse API."
+
+      - name: raw_greenhouse_application_events
+        description: "Raw application lifecycle events received from Greenhouse webhooks."
+        columns:
+          - name: application_id
+            tests:
+              - not_null
+          - name: action
+            tests:
+              - not_null
+          - name: last_activity_at
+            tests:
+              - not_null

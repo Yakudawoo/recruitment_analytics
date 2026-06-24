@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Environment variables
+.env
+
+# dbt
+dbt_recruitment_analytics/target/
+dbt_recruitment_analytics/dbt_packages/
+dbt_recruitment_analytics/logs/
+
+# Local outputs
+data/processed/

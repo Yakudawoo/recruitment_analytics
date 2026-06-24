@@ -1,4 +1,23 @@
+# Dashboard / local prototype
 streamlit
 pandas
 plotly
 openpyxl
+
+# Cloud ingestion
+boto3
+google-cloud-bigquery
+google-cloud-storage
+pyarrow
+python-dotenv
+
+# dbt
+dbt-bigquery
+
+# Code quality / utilities
+ruff
+fastapi
+uvicorn
+requests
+
+pandas-gbq
