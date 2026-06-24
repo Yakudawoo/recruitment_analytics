@@ -227,3 +227,4 @@ dbt_recruitment_analytics/logs/
 
 # Local outputs
 data/processed/
+secrets/

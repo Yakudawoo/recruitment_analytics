@@ -39,7 +39,7 @@ def get_bigquery_client():
     return bigquery.Client(project=PROJECT_ID)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=1800)
 def run_query(query):
     client = get_bigquery_client()
 
@@ -47,7 +47,8 @@ def run_query(query):
         maximum_bytes_billed=MAXIMUM_BYTES_BILLED
     )
 
-    return client.query(query, job_config=job_config).to_dataframe()
+    query_job = client.query(query, job_config=job_config)
+    return query_job.to_dataframe(create_bqstorage_client=False)
 
 
 def table_ref(table_name):
