@@ -1,0 +1,10 @@
+Recruitment Analytics Dashboard Demo
+
+Hugging Face Space:
+https://huggingface.co/spaces/OK-Fintech/recruitment-analytics-dashboard
+
+GitHub repository:
+https://github.com/Yakudawoo/recruitment_analytics.git
+
+Note:
+The dashboard reads live BigQuery mart tables through a dedicated read-only service account.
