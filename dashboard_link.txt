@@ -12,4 +12,10 @@ https://github.com/Yakudawoo/recruitment_analytics.git
 Note:
 The dashboard reads live BigQuery mart tables through a dedicated read-only service account.
 
+The demo was updated with a larger synthetic Greenhouse-like dataset to make the HR-facing dashboard more representative:
+- 120 jobs
+- 1,800 candidates
+- 2,500 applications
+- several thousand application stage events
+
 The Hugging Face Space may take a few seconds to wake up on first load. If the page appears blank, please refresh once or wait briefly.

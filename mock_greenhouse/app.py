@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,10 +11,16 @@ from pydantic import BaseModel
 
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+GENERATED_DATA_DIR = DATA_DIR / "generated"
 
-EXCEL_FILE = DATA_DIR / "hiring_data.xlsx"
-WEBHOOK_FILE = DATA_DIR / "webhook_application_events.json"
+MOCK_DATASET_PROFILE = os.getenv("MOCK_DATASET_PROFILE", "original").lower()
 
+if MOCK_DATASET_PROFILE == "large":
+    EXCEL_FILE = GENERATED_DATA_DIR / "hiring_data_large.xlsx"
+    WEBHOOK_FILE = GENERATED_DATA_DIR / "webhook_application_events_large.json"
+else:
+    EXCEL_FILE = DATA_DIR / "hiring_data.xlsx"
+    WEBHOOK_FILE = DATA_DIR / "webhook_application_events.json"
 
 class WebhookRegistration(BaseModel):
     url: str
@@ -36,6 +43,15 @@ app = FastAPI(
     ),
     version="1.0.0",
 )
+
+
+@app.get("/dataset-profile")
+def get_dataset_profile():
+    return {
+        "profile": MOCK_DATASET_PROFILE,
+        "excel_file": str(EXCEL_FILE),
+        "webhook_file": str(WEBHOOK_FILE),
+    }
 
 
 def now_utc():
