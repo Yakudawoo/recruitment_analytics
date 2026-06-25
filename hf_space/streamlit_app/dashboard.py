@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
-
 load_dotenv()
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID")
@@ -40,14 +39,12 @@ def get_bigquery_client():
 
 
 @st.cache_data(ttl=1800)
-def run_query(query):
+def run_query(query: str) -> pd.DataFrame:
     client = get_bigquery_client()
-
-    job_config = bigquery.QueryJobConfig(
-        maximum_bytes_billed=MAXIMUM_BYTES_BILLED
-    )
+    job_config = bigquery.QueryJobConfig(maximum_bytes_billed=100_000_000)
 
     query_job = client.query(query, job_config=job_config)
+
     return query_job.to_dataframe(create_bqstorage_client=False)
 
 
@@ -211,15 +208,9 @@ if not PROJECT_ID:
 
 
 with st.spinner("Loading BigQuery marts..."):
-    executive_overview = load_table(
-        "mart_hr_executive_overview_by_office_department"
-    )
-    application_status = load_table(
-        "mart_application_status_by_office_department"
-    )
-    recruitment_funnel = load_table(
-        "mart_recruitment_funnel_by_office_department"
-    )
+    executive_overview = load_table("mart_hr_executive_overview_by_office_department")
+    application_status = load_table("mart_application_status_by_office_department")
+    recruitment_funnel = load_table("mart_recruitment_funnel_by_office_department")
     recruiter_workload = load_table("mart_recruiter_workload")
     recruiter_performance = load_table("mart_recruiter_performance")
     sla_breaches = load_table("mart_sla_breaches")
@@ -227,9 +218,11 @@ with st.spinner("Loading BigQuery marts..."):
 
 st.sidebar.header("Global filters")
 
-office_options = sorted(
-    executive_overview["office_name"].dropna().unique().tolist()
-)
+if st.sidebar.button("Refresh BigQuery data"):
+    st.cache_data.clear()
+    st.rerun()
+
+office_options = sorted(executive_overview["office_name"].dropna().unique().tolist())
 
 department_options = sorted(
     executive_overview["department_name"].dropna().unique().tolist()
@@ -371,8 +364,9 @@ if filtered_application_status.empty:
     st.info("No application status data for the selected scope.")
 else:
     status_chart_data = (
-        filtered_application_status
-        .groupby("application_status", as_index=False)["applications_count"]
+        filtered_application_status.groupby("application_status", as_index=False)[
+            "applications_count"
+        ]
         .sum()
         .sort_values("applications_count", ascending=False)
     )
@@ -414,10 +408,9 @@ if filtered_recruitment_funnel.empty:
     st.info("No recruitment funnel data for the selected scope.")
 else:
     funnel_chart_data = (
-        filtered_recruitment_funnel
-        .groupby(["stage_order", "stage_name"], as_index=False)[
-            "applications_reached"
-        ]
+        filtered_recruitment_funnel.groupby(
+            ["stage_order", "stage_name"], as_index=False
+        )["applications_reached"]
         .sum()
         .sort_values("stage_order")
     )
@@ -456,8 +449,7 @@ if filtered_recruiter_workload.empty:
     st.info("No recruiter workload data for the selected scope.")
 else:
     workload_chart_data = (
-        filtered_recruiter_workload
-        .groupby("recruiter_name", as_index=False)[
+        filtered_recruiter_workload.groupby("recruiter_name", as_index=False)[
             [
                 "total_applications",
                 "active_applications",
@@ -594,8 +586,7 @@ st.divider()
 
 st.subheader("Dashboard Capabilities")
 
-st.markdown(
-    """
+st.markdown("""
 This dashboard covers the following HR analytics capabilities:
 
 1. Application status distribution by office and department.
@@ -606,8 +597,7 @@ This dashboard covers the following HR analytics capabilities:
 6. Recruiter SLA breach detection at application level.
 7. Average recruiter response time by stage.
 8. Office and department scoped filtering.
-"""
-)
+""")
 
 st.divider()
 
