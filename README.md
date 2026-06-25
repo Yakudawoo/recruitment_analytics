@@ -183,6 +183,49 @@ uvicorn mock_greenhouse.app:app --reload --port 8000
 ./scripts/run_recruitment_pipeline.sh
 5. Run Streamlit locally
 streamlit run streamlit_app/dashboard.py
+
+## Local API simulation demo
+
+The Streamlit dashboard includes optional local demo controls to show that the dashboard is not static Excel reporting.
+
+This feature is hidden by default and is not enabled on the public Hugging Face dashboard unless explicitly configured.
+
+Enable it locally with:
+
+```bash
+export ENABLE_DEMO_MUTATION=true
+streamlit run streamlit_app/dashboard.py
+```
+
+The optional pipeline execution button requires an additional local-only flag:
+
+```bash
+export ALLOW_LOCAL_PIPELINE_TRIGGER=true
+```
+
+The demo flow is:
+
+```text
+Mock Greenhouse API stage-change simulation
+    ↓
+ingestion script
+    ↓
+BigQuery RAW
+    ↓
+dbt marts
+    ↓
+dashboard refresh
+```
+
+The simulation only calls the Mock Greenhouse API endpoint:
+
+```text
+POST /applications/{application_id}/stage-change
+```
+
+It does not edit seed Excel/JSON files and does not write directly to BigQuery from Streamlit.
+Audit files are written locally under `data/generated/` and ignored by Git.
+
 Security and cost controls
 
 Implemented controls:

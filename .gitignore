@@ -227,6 +227,7 @@ dbt_recruitment_analytics/logs/
 
 # Local outputs
 data/processed/
+data/generated/api_demo_stage_change_*.json
 secrets/
 
 # Local secrets and runtime files

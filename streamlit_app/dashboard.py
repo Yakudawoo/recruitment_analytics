@@ -8,6 +8,11 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
+try:
+    from streamlit_app.demo_controls import render_demo_controls
+except ModuleNotFoundError:
+    from demo_controls import render_demo_controls
+
 
 load_dotenv()
 
@@ -225,6 +230,12 @@ with st.spinner("Loading BigQuery marts..."):
 
 
 st.sidebar.header("Global filters")
+
+if st.sidebar.button("Refresh BigQuery data"):
+    st.cache_data.clear()
+    st.rerun()
+
+render_demo_controls()
 
 office_options = sorted(
     executive_overview["office_name"].dropna().unique().tolist()

@@ -210,3 +210,19 @@ Mock Greenhouse API
 → Streamlit Dashboard  
 
 The original files provided for the exercise are still preserved. The larger dataset is generated separately and can be selected through the mock API dataset profile.
+
+## 13. Local API simulation demo
+
+A local-only API simulation was added to demonstrate that the dashboard is not based on a static Excel extract.
+
+The simulation triggers controlled stage-change events through the Mock Greenhouse API. The ingestion script then reloads the updated API data into BigQuery RAW, dbt rebuilds the analytical layers, and the dashboard reflects the updated mart tables after refresh.
+
+The demo uses completed stage transitions:
+
+```text
+Reference Check
+    ↓
+Offer
+This makes the Reference Check stage visible in the recruitment funnel while avoiding artificial hires or rejections.
+
+The simulation controls are hidden by default and are not enabled on the public Hugging Face dashboard. The public dashboard remains read-only, except for the Refresh BigQuery data button which only clears Streamlit cache and reloads BigQuery mart tables.
