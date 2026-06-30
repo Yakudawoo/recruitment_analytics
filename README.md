@@ -262,3 +262,73 @@ uvicorn mock_greenhouse.app:app --reload --port 8000
 ./scripts/run_recruitment_pipeline.sh
 streamlit run streamlit_app/dashboard.py
 ```
+
+## Airflow refresh from Hugging Face through ngrok
+
+The admin workflow can trigger the Airflow analytics refresh from the deployed Hugging Face Space when Airflow is exposed through a secure public HTTPS tunnel such as ngrok.
+
+Expected runtime path:
+
+```text
+Hugging Face Streamlit
+→ ngrok public HTTPS URL
+→ local Airflow REST API
+→ Supabase → BigQuery → dbt marts
+Required Hugging Face variables:
+
+ENABLE_ADMIN_AIRFLOW_TRIGGER=true
+AIRFLOW_API_BASE_URL=https://<your-ngrok-domain>.ngrok-free.dev
+AIRFLOW_DAG_ID=supabase_recruitment_analytics_demo_pipeline
+
+Required Hugging Face secrets:
+
+AIRFLOW_USERNAME=admin
+AIRFLOW_PASSWORD=<airflow-password>
+AIRFLOW_BEARER_TOKEN=
+
+AIRFLOW_BEARER_TOKEN can remain empty. In that case, Streamlit retrieves a fresh Airflow token from:
+
+POST /auth/token
+
+The integration accepts both 200 OK and 201 Created token responses.
+
+The Streamlit integration also:
+
+adds the ngrok-skip-browser-warning: true header to Airflow API calls
+stores the Airflow token in the Streamlit session
+refreshes the token once if a status check returns 401 or 403
+separates DAG trigger success from status monitoring failures
+displays sanitized Airflow debug information without exposing passwords or tokens
+
+Important:
+
+AIRFLOW_API_BASE_URL must be the public ngrok HTTPS base URL only.
+It must not include /auth/token.
+It must not include /api/v2.
+It must not point to localhost or 127.0.0.1 when running on Hugging Face.
+The local Airflow process and the ngrok tunnel must remain running during the demo.
+
+Example local startup:
+
+cd /Users/olivierkdw/projets/recruitment_analytics
+
+set -a
+source .env
+set +a
+
+export AIRFLOW_HOME="$PWD/airflow_home"
+export PYTHONPATH="$PWD"
+export PATH="$PWD/.venv-airflow/bin:$PATH"
+
+export BQ_RAW_DATASET=raw_greenhouse_demo
+export BQ_STG_DATASET=stg_greenhouse_demo
+export BQ_CORE_DATASET=core_greenhouse_demo
+export BQ_MARTS_DATASET=marts_recruitment_demo
+export BQ_LOCATION=EU
+
+airflow standalone
+
+Then, in another terminal:
+
+ngrok http 8080
+

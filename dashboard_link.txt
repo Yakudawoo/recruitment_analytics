@@ -14,3 +14,9 @@ Admin workflows may require environment flags and Supabase authentication to be 
 
 Safety note:
 Production-like mutation workflows are guarded and should use demo datasets unless explicitly configured.
+
+Admin workflow demo note:
+The hosted Hugging Face dashboard can display the Supabase admin workflow. If Airflow refresh is enabled, AIRFLOW_API_BASE_URL must point to a public HTTPS ngrok URL forwarding to the local Airflow server on port 8080. The local Airflow process and ngrok tunnel must remain running during the demo.
+
+Recommended demo DAG:
+supabase_recruitment_analytics_demo_pipeline

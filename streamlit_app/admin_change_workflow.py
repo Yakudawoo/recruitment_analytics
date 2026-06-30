@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import ssl
 import subprocess
 import time
 import uuid
@@ -132,10 +134,99 @@ def is_airflow_trigger_available() -> bool:
 
 
 def get_airflow_api_base_url() -> str:
-    return os.getenv(
+    base_url = os.getenv(
         "AIRFLOW_API_BASE_URL",
         DEFAULT_AIRFLOW_API_BASE_URL,
-    ).rstrip("/")
+    ).strip().rstrip("/")
+    parsed_url = urllib.parse.urlparse(base_url)
+    hostname = (parsed_url.hostname or "").lower()
+    is_localhost = hostname in {"localhost", "127.0.0.1", "::1"}
+    is_hugging_face = any(
+        os.getenv(name)
+        for name in ["SPACE_ID", "SPACE_HOST", "HF_SPACE_ID", "HUGGING_FACE_SPACE_ID"]
+    )
+
+    if not parsed_url.scheme or not parsed_url.netloc:
+        raise RuntimeError(
+            "AIRFLOW_API_BASE_URL must be the public ngrok HTTPS base URL, "
+            "for example https://xxxxx.ngrok-free.dev"
+        )
+
+    if parsed_url.path.rstrip("/") in {"/auth/token", "/api/v2"}:
+        raise RuntimeError(
+            "AIRFLOW_API_BASE_URL must be the public ngrok HTTPS base URL, "
+            "for example https://xxxxx.ngrok-free.dev"
+        )
+
+    if is_hugging_face and is_localhost:
+        raise RuntimeError(
+            "AIRFLOW_API_BASE_URL cannot point to localhost from Hugging Face. "
+            "AIRFLOW_API_BASE_URL must be the public ngrok HTTPS base URL, "
+            "for example https://xxxxx.ngrok-free.dev"
+        )
+
+    if parsed_url.scheme != "https" and (is_hugging_face or not is_localhost):
+        raise RuntimeError(
+            "AIRFLOW_API_BASE_URL must be the public ngrok HTTPS base URL, "
+            "for example https://xxxxx.ngrok-free.dev"
+        )
+
+    return base_url
+
+
+def airflow_unreachable_message() -> str:
+    return (
+        "Airflow API is unreachable through the configured HTTPS tunnel. Check "
+        "that ngrok is online, the forwarding URL is current, and "
+        "AIRFLOW_API_BASE_URL points to the public HTTPS ngrok URL."
+    )
+
+
+def is_ssl_url_error(error: urllib.error.URLError) -> bool:
+    reason = error.reason
+
+    return isinstance(reason, ssl.SSLError) or "ssl" in str(reason).lower()
+
+
+def get_airflow_base_headers(content_type: str = "application/json") -> dict[str, str]:
+    return {
+        "Accept": "application/json",
+        "Content-Type": content_type,
+        "ngrok-skip-browser-warning": "true",
+    }
+
+
+def redact_airflow_secret_text(value: str) -> str:
+    redacted = re.sub(
+        r'("(?:access_token|token)"\s*:\s*")[^"]+(")',
+        r"\1***redacted***\2",
+        value,
+        flags=re.IGNORECASE,
+    )
+    redacted = re.sub(
+        r"(Bearer\s+)[A-Za-z0-9._~+/=-]+",
+        r"\1***redacted***",
+        redacted,
+        flags=re.IGNORECASE,
+    )
+
+    return redacted
+
+
+def sanitize_airflow_response_debug(
+    status_code: int | None,
+    body_text: str,
+    parsed_body: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "status_code": status_code,
+        "response_json_keys": sorted(parsed_body.keys()) if parsed_body else [],
+        "response_text_first_300_chars": redact_airflow_secret_text(body_text)[:300],
+    }
+
+
+def store_airflow_debug_value(key: str, value: Any):
+    st.session_state[key] = value
 
 
 def request_airflow_token(
@@ -145,29 +236,68 @@ def request_airflow_token(
     request = urllib.request.Request(
         f"{get_airflow_api_base_url()}/auth/token",
         data=payload_data,
-        headers={
-            "Accept": "application/json",
-            "Content-Type": content_type,
-        },
+        headers=get_airflow_base_headers(content_type),
         method="POST",
     )
 
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             body = response.read().decode("utf-8")
-            return json.loads(body) if body else {}
+            status_code = getattr(response, "status", None)
+            try:
+                parsed_body = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                parsed_body = {}
+            store_airflow_debug_value("airflow_last_auth_status_code", status_code)
+            store_airflow_debug_value(
+                "airflow_last_auth_debug",
+                sanitize_airflow_response_debug(status_code, body, parsed_body),
+            )
+            return parsed_body
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8")
+        parsed_detail = None
+
+        try:
+            parsed_detail = json.loads(detail) if detail else None
+        except json.JSONDecodeError:
+            parsed_detail = None
+
+        store_airflow_debug_value("airflow_last_auth_status_code", error.code)
+        store_airflow_debug_value(
+            "airflow_last_auth_debug",
+            sanitize_airflow_response_debug(error.code, detail, parsed_detail),
+        )
         raise RuntimeError(f"{error.code} {detail}") from error
     except urllib.error.URLError as error:
+        if is_ssl_url_error(error):
+            raise RuntimeError(airflow_unreachable_message()) from error
         raise RuntimeError(str(error.reason)) from error
 
 
-def get_airflow_access_token() -> str:
+def normalize_bearer_token(raw_token: str) -> str:
+    token = raw_token.strip()
+
+    if token.lower().startswith("bearer "):
+        return token[7:].strip()
+
+    return token
+
+
+def get_airflow_access_token(force_refresh: bool = False) -> str:
     bearer_token = os.getenv("AIRFLOW_BEARER_TOKEN", "").strip()
 
     if bearer_token:
-        return bearer_token
+        token = normalize_bearer_token(bearer_token)
+        st.session_state["airflow_access_token"] = token
+        st.session_state["airflow_token_source"] = "env"
+        return token
+
+    cached_token = st.session_state.get("airflow_access_token")
+
+    if cached_token and not force_refresh:
+        st.session_state["airflow_token_source"] = "session"
+        return str(cached_token)
 
     username = os.getenv("AIRFLOW_USERNAME", "").strip()
     password = os.getenv("AIRFLOW_PASSWORD", "")
@@ -192,12 +322,15 @@ def get_airflow_access_token() -> str:
     except RuntimeError as error:
         errors.append(str(error))
     else:
-        access_token = response.get("access_token")
+        access_token = response.get("access_token") or response.get("token")
 
         if access_token:
-            return str(access_token)
+            token = normalize_bearer_token(str(access_token))
+            st.session_state["airflow_access_token"] = token
+            st.session_state["airflow_token_source"] = "/auth/token"
+            return token
 
-        errors.append("JSON token response did not include access_token")
+        errors.append("JSON token response did not include access_token or token")
 
     try:
         response = request_airflow_token(
@@ -207,30 +340,35 @@ def get_airflow_access_token() -> str:
     except RuntimeError as error:
         errors.append(str(error))
     else:
-        access_token = response.get("access_token")
+        access_token = response.get("access_token") or response.get("token")
 
         if access_token:
-            return str(access_token)
+            token = normalize_bearer_token(str(access_token))
+            st.session_state["airflow_access_token"] = token
+            st.session_state["airflow_token_source"] = "/auth/token"
+            return token
 
-        errors.append("Form token response did not include access_token")
+        errors.append("Form token response did not include access_token or token")
 
+    st.session_state["airflow_last_auth_errors"] = errors
     raise RuntimeError(
         "Airflow authentication failed. Could not retrieve Airflow access token."
     )
 
 
-def get_airflow_api_headers() -> dict[str, str]:
-    return {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {get_airflow_access_token()}",
-    }
+def get_airflow_api_headers(force_refresh_token: bool = False) -> dict[str, str]:
+    headers = get_airflow_base_headers()
+    headers["Authorization"] = f"Bearer {get_airflow_access_token(force_refresh_token)}"
+
+    return headers
 
 
 def airflow_api_request(
     method: str,
     path: str,
     payload: dict[str, Any] | None = None,
+    debug_status_key: str | None = None,
+    allow_auth_retry: bool = True,
 ) -> dict[str, Any]:
     request = urllib.request.Request(
         f"{get_airflow_api_base_url()}{path}",
@@ -242,9 +380,57 @@ def airflow_api_request(
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             body = response.read().decode("utf-8")
-            return json.loads(body) if body else {}
+            status_code = getattr(response, "status", None)
+
+            if debug_status_key:
+                store_airflow_debug_value(debug_status_key, status_code)
+
+            if not body:
+                return {}
+
+            try:
+                return json.loads(body)
+            except json.JSONDecodeError:
+                return {
+                    "_response_text_first_300_chars": redact_airflow_secret_text(body)[
+                        :300
+                    ]
+                }
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8")
+
+        if debug_status_key:
+            store_airflow_debug_value(debug_status_key, error.code)
+
+        if error.code in {401, 403} and allow_auth_retry:
+            retry_request = urllib.request.Request(
+                f"{get_airflow_api_base_url()}{path}",
+                data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+                headers=get_airflow_api_headers(force_refresh_token=True),
+                method=method,
+            )
+
+            try:
+                with urllib.request.urlopen(retry_request, timeout=30) as response:
+                    body = response.read().decode("utf-8")
+                    status_code = getattr(response, "status", None)
+
+                    if debug_status_key:
+                        store_airflow_debug_value(debug_status_key, status_code)
+
+                    return json.loads(body) if body else {}
+            except urllib.error.HTTPError as retry_error:
+                detail = retry_error.read().decode("utf-8")
+
+                if debug_status_key:
+                    store_airflow_debug_value(debug_status_key, retry_error.code)
+
+                raise RuntimeError(f"{retry_error.code} {detail}") from retry_error
+            except urllib.error.URLError as retry_error:
+                if is_ssl_url_error(retry_error):
+                    raise RuntimeError(airflow_unreachable_message()) from retry_error
+                raise RuntimeError(str(retry_error.reason)) from retry_error
+
         if error.code == 422:
             raise RuntimeError(
                 "Airflow rejected the DAG trigger payload. Check logical_date "
@@ -252,6 +438,8 @@ def airflow_api_request(
             ) from error
         raise RuntimeError(f"{error.code} {detail}") from error
     except urllib.error.URLError as error:
+        if is_ssl_url_error(error):
+            raise RuntimeError(airflow_unreachable_message()) from error
         raise RuntimeError(str(error.reason)) from error
 
 
@@ -290,6 +478,7 @@ def trigger_airflow_demo_dag(user_email: str) -> dict[str, Any]:
         "POST",
         f"/api/v2/dags/{dag_id}/dagRuns",
         payload=build_airflow_dag_run_payload(user_email),
+        debug_status_key="airflow_last_trigger_status_code",
     )
 
 
@@ -305,6 +494,7 @@ def get_airflow_demo_run_status(dag_run_id: str) -> dict[str, Any]:
     return airflow_api_request(
         "GET",
         f"/api/v2/dags/{dag_id}/dagRuns/{urllib.parse.quote(dag_run_id, safe='')}",
+        debug_status_key="airflow_last_status_check_status_code",
     )
 
 
@@ -364,12 +554,78 @@ def check_airflow_status_once(dag_run_id: str) -> dict[str, Any]:
     return response
 
 
+def sanitize_airflow_base_url_for_debug() -> str:
+    try:
+        parsed_url = urllib.parse.urlparse(get_airflow_api_base_url())
+    except RuntimeError as error:
+        return f"Invalid AIRFLOW_API_BASE_URL: {error}"
+
+    netloc = parsed_url.hostname or ""
+
+    if parsed_url.port:
+        netloc = f"{netloc}:{parsed_url.port}"
+
+    return urllib.parse.urlunparse(
+        (
+            parsed_url.scheme,
+            netloc,
+            parsed_url.path.rstrip("/"),
+            "",
+            "",
+            "",
+        )
+    )
+
+
+def render_airflow_api_debug():
+    dag_id = get_airflow_dag_id()
+    dag_run_id = st.session_state.get("airflow_last_dag_run_id") or st.session_state.get(
+        "airflow_demo_dag_run_id"
+    )
+    status_endpoint = (
+        f"/api/v2/dags/{dag_id}/dagRuns/{urllib.parse.quote(str(dag_run_id), safe='')}"
+        if dag_run_id
+        else None
+    )
+
+    with st.expander("Airflow API debug", expanded=False):
+        st.json(
+            {
+                "AIRFLOW_API_BASE_URL": sanitize_airflow_base_url_for_debug(),
+                "AIRFLOW_DAG_ID": dag_id,
+                "auth_endpoint_path": "/auth/token",
+                "dag_trigger_endpoint_path": f"/api/v2/dags/{dag_id}/dagRuns",
+                "status_endpoint_path": status_endpoint,
+                "last_auth_status_code": st.session_state.get(
+                    "airflow_last_auth_status_code"
+                ),
+                "last_trigger_status_code": st.session_state.get(
+                    "airflow_last_trigger_status_code"
+                ),
+                "last_status_check_status_code": st.session_state.get(
+                    "airflow_last_status_check_status_code"
+                ),
+                "last_dag_run_id": dag_run_id,
+                "token_source": st.session_state.get("airflow_token_source"),
+            }
+        )
+
+        if st.session_state.get("airflow_last_auth_debug"):
+            st.caption("Last auth response debug")
+            st.json(st.session_state["airflow_last_auth_debug"])
+
+        if st.session_state.get("airflow_last_status_error"):
+            st.caption("Last status monitoring error")
+            st.code(st.session_state["airflow_last_status_error"], language=None)
+
+
 def render_airflow_status_panel():
     dag_run_id = st.session_state.get("airflow_last_dag_run_id") or st.session_state.get(
         "airflow_demo_dag_run_id"
     )
 
     if not dag_run_id:
+        render_airflow_api_debug()
         return
 
     state = st.session_state.get("airflow_last_state", "unknown")
@@ -431,9 +687,13 @@ def render_airflow_manual_status_check():
     if st.button("Check Airflow run status"):
         try:
             check_airflow_status_once(dag_run_id)
+            st.session_state.pop("airflow_last_status_error", None)
             st.rerun()
         except RuntimeError as error:
-            st.error(f"Airflow authentication failed or status check failed: {error}")
+            st.session_state["airflow_last_status_error"] = str(error)
+            st.warning(
+                "DAG was triggered, but Streamlit could not retrieve the latest status."
+            )
 
 
 def render_airflow_status_monitor_once():
@@ -452,8 +712,12 @@ def render_airflow_status_monitor_once():
 
     try:
         check_airflow_status_once(dag_run_id)
+        st.session_state.pop("airflow_last_status_error", None)
     except RuntimeError as error:
-        st.error(f"Airflow authentication failed or status check failed: {error}")
+        st.session_state["airflow_last_status_error"] = str(error)
+        st.warning(
+            "DAG was triggered, but Streamlit could not retrieve the latest status."
+        )
         return
 
     render_airflow_status_panel()
@@ -2747,7 +3011,7 @@ def render_airflow_analytics_refresh(user_email: str):
                     response.get("state") or "queued"
                 )
 
-            st.success("Airflow analytics refresh triggered.")
+            st.success("Airflow DAG run was triggered successfully.")
             st.json(
                 {
                     "dag_run_id": dag_run_id,
@@ -2778,6 +3042,7 @@ def render_airflow_analytics_refresh(user_email: str):
         render_airflow_status_panel()
 
     render_airflow_manual_status_check()
+    render_airflow_api_debug()
 
 
 def render_supabase_operational_workflow():

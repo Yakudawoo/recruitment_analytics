@@ -209,3 +209,27 @@ Production target equivalent:
 - Workato recipes instead of demo ingestion/sync patterns;
 - Looker or another BI layer instead of Streamlit if required;
 - managed secrets, service accounts, monitoring, audit controls, and environment-specific deployment permissions.
+
+## Hugging Face admin demo with Airflow refresh
+
+For the hosted demo, the Streamlit application deployed on Hugging Face can trigger the Airflow analytics refresh through the Airflow REST API when Airflow is exposed through a temporary HTTPS tunnel such as ngrok.
+
+This keeps the production-like flow visible from the hosted dashboard:
+
+```text
+Admin workflow action
+→ Supabase operational mutation
+→ Airflow analytics refresh
+→ Supabase-to-BigQuery ingestion
+→ dbt marts rebuild
+→ Streamlit BigQuery refresh
+The current implementation separates two concerns:
+
+DAG trigger success
+DAG run status monitoring
+
+This prevents a successful DAG trigger from being incorrectly reported as a trigger failure if only the status check fails.
+
+The Airflow integration uses token-based authentication through /auth/token, supports both 200 and 201 responses, and adds the ngrok-skip-browser-warning header for ngrok-based demo access.
+
+No Airflow password, token, Supabase secret, or GCP key is displayed in the Streamlit UI.
