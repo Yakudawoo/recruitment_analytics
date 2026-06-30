@@ -1,21 +1,16 @@
 Recruitment Analytics Dashboard Demo
 
-Direct live dashboard:
+Live dashboard URL:
 https://ok-fintech-recruitment-analytics-dashboard.hf.space
 
-Hugging Face Space page:
-https://huggingface.co/spaces/OK-Fintech/recruitment-analytics-dashboard
-
 GitHub repository:
-https://github.com/Yakudawoo/recruitment_analytics.git
+https://github.com/Yakudawoo/recruitment_analytics
 
-Note:
-The dashboard reads live BigQuery mart tables through a dedicated read-only service account.
+Short description:
+Recruitment analytics dashboard with Supabase operational workflow, BigQuery/dbt analytics marts, Airflow orchestration, and Streamlit UI.
 
-The demo was updated with a larger synthetic Greenhouse-like dataset to make the HR-facing dashboard more representative:
-- 120 jobs
-- 1,800 candidates
-- 2,500 applications
-- several thousand application stage events
+Demo note:
+Admin workflows may require environment flags and Supabase authentication to be enabled.
 
-The Hugging Face Space may take a few seconds to wake up on first load. If the page appears blank, please refresh once or wait briefly.
+Safety note:
+Production-like mutation workflows are guarded and should use demo datasets unless explicitly configured.

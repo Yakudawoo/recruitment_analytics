@@ -27,7 +27,8 @@ class WebhookRegistration(BaseModel):
 
 
 class StageChangeRequest(BaseModel):
-    new_stage: str
+    new_stage: Optional[str] = None
+    current_stage: Optional[str] = None
     current_status: str = "active"
 
 
@@ -366,6 +367,14 @@ def register_webhook(payload: WebhookRegistration):
 
 @app.post("/applications/{application_id}/stage-change")
 def change_application_stage(application_id: int, payload: StageChangeRequest):
+    target_stage = payload.new_stage or payload.current_stage
+
+    if not target_stage:
+        raise HTTPException(
+            status_code=422,
+            detail="Stage change requires new_stage or current_stage.",
+        )
+
     application = find_application(application_id)
     latest_event = get_latest_application_event(application_id)
 
@@ -387,7 +396,7 @@ def change_application_stage(application_id: int, payload: StageChangeRequest):
         previous_status=previous_status,
         current_status=payload.current_status,
         previous_stage=previous_stage,
-        current_stage=payload.new_stage,
+        current_stage=target_stage,
     )
 
     STATE["application_events"].append(event)
@@ -395,7 +404,7 @@ def change_application_stage(application_id: int, payload: StageChangeRequest):
     update_application_state(
         application_id,
         status=payload.current_status,
-        stage=payload.new_stage,
+        stage=target_stage,
     )
 
     deliveries = dispatch_event_to_registered_webhooks(event)

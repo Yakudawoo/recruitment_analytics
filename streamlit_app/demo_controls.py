@@ -16,6 +16,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATED_DATA_DIR = REPO_ROOT / "data" / "generated"
 DEFAULT_TARGET_STAGE = "Reference Check"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
+FINAL_DEMO_STAGE = "Offer"
+PLANNED_STAGE_SEQUENCE = (DEFAULT_TARGET_STAGE, FINAL_DEMO_STAGE)
+FOCUSED_GROUP_MODE = "Focused group"
+GLOBAL_IMPACT_MODE = "Global impact"
 
 
 def get_demo_flag(name: str, default: bool = False) -> bool:
@@ -155,8 +159,11 @@ def select_demo_applications(
     job_context,
     target_stage,
     requested_limit,
+    selection_mode=FOCUSED_GROUP_MODE,
 ):
     candidates = []
+    seen_application_ids = set()
+    final_stage = PLANNED_STAGE_SEQUENCE[-1]
 
     for application in applications:
         current_stage = get_key(
@@ -176,16 +183,29 @@ def select_demo_applications(
         if application_id is None or job_id is None:
             continue
 
+        if application_id in seen_application_ids:
+            continue
+
         if str(status).lower() != "active":
             continue
 
-        if str(current_stage) == str(target_stage):
+        if str(current_stage).strip().lower() == str(final_stage).strip().lower():
             continue
 
         if int(job_id) not in job_context:
             continue
 
+        seen_application_ids.add(application_id)
         candidates.append(_application_to_demo_record(application, job_context))
+
+    if selection_mode == GLOBAL_IMPACT_MODE:
+        return {
+            "selection_mode": selection_mode,
+            "selected_scope": None,
+            "applications": candidates[:requested_limit],
+            "available_candidates": len(candidates),
+            "selected_group_candidates": None,
+        }
 
     grouped: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
 
@@ -199,9 +219,11 @@ def select_demo_applications(
 
     if not grouped:
         return {
+            "selection_mode": selection_mode,
             "selected_scope": None,
             "applications": [],
             "available_candidates": 0,
+            "selected_group_candidates": 0,
         }
 
     selected_scope_tuple, selected_applications = max(
@@ -216,45 +238,55 @@ def select_demo_applications(
     }
 
     return {
+        "selection_mode": selection_mode,
         "selected_scope": selected_scope,
         "applications": selected_applications[:requested_limit],
-        "available_candidates": len(selected_applications),
+        "available_candidates": len(candidates),
+        "selected_group_candidates": len(selected_applications),
     }
 
 
-def apply_stage_changes(api_base_url, applications, target_stage):
+def apply_stage_changes(
+    api_base_url,
+    applications,
+    target_stage,
+    planned_stage_sequence=PLANNED_STAGE_SEQUENCE,
+):
     results = []
 
     for application in applications:
         application_id = application["application_id"]
-        endpoint = f"/applications/{application_id}/stage-change"
-        payload = {
-            "current_stage": target_stage,
-            "new_stage": target_stage,
-        }
+        for stage in planned_stage_sequence:
+            endpoint = f"/applications/{application_id}/stage-change"
+            payload = {
+                "current_stage": stage,
+                "new_stage": stage,
+            }
 
-        try:
-            response = _request_json(
-                api_base_url,
-                endpoint,
-                method="POST",
-                payload=payload,
-            )
-            results.append(
-                {
-                    "application_id": application_id,
-                    "success": True,
-                    "response": response,
-                }
-            )
-        except RuntimeError as error:
-            results.append(
-                {
-                    "application_id": application_id,
-                    "success": False,
-                    "error": str(error),
-                }
-            )
+            try:
+                response = _request_json(
+                    api_base_url,
+                    endpoint,
+                    method="POST",
+                    payload=payload,
+                )
+                results.append(
+                    {
+                        "application_id": application_id,
+                        "stage": stage,
+                        "success": True,
+                        "response": response,
+                    }
+                )
+            except RuntimeError as error:
+                results.append(
+                    {
+                        "application_id": application_id,
+                        "stage": stage,
+                        "success": False,
+                        "error": str(error),
+                    }
+                )
 
     return results
 
@@ -265,6 +297,9 @@ def write_audit_payload(
     limit,
     selected_scope,
     applications,
+    selection_mode=FOCUSED_GROUP_MODE,
+    available_candidates=0,
+    planned_stage_sequence=PLANNED_STAGE_SEQUENCE,
     api_results=None,
 ):
     GENERATED_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -274,10 +309,14 @@ def write_audit_payload(
     payload = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "mode": mode,
+        "selection_mode": selection_mode,
         "target_stage": target_stage,
+        "planned_stage_sequence": list(planned_stage_sequence),
         "limit": limit,
         "selected_scope": selected_scope,
+        "eligible_applications_found": available_candidates,
         "application_count": len(applications),
+        "expected_new_api_events": len(applications) * len(planned_stage_sequence),
         "application_ids": [application["application_id"] for application in applications],
         "applications": applications,
         "api_results": api_results or [],
@@ -288,7 +327,12 @@ def write_audit_payload(
     return path
 
 
-def _load_demo_selection(api_base_url: str, target_stage: str, limit: int) -> dict:
+def _load_demo_selection(
+    api_base_url: str,
+    target_stage: str,
+    limit: int,
+    selection_mode: str,
+) -> dict:
     _request_json(api_base_url, "/health")
 
     jobs = fetch_paginated(api_base_url, "/jobs")
@@ -300,16 +344,61 @@ def _load_demo_selection(api_base_url: str, target_stage: str, limit: int) -> di
         job_context,
         target_stage,
         limit,
+        selection_mode,
     )
 
 
-def _render_selection_result(selection: dict, audit_path: Path):
+def _build_scope_breakdown(applications: list[dict]) -> dict[str, int]:
+    breakdown: dict[str, int] = defaultdict(int)
+
+    for application in applications:
+        key = " / ".join(
+            [
+                application.get("recruiter") or "Unknown recruiter",
+                application.get("office") or "Unknown office",
+                application.get("department") or "Unknown department",
+            ]
+        )
+        breakdown[key] += 1
+
+    return dict(
+        sorted(
+            breakdown.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+    )
+
+
+def _render_selection_result(selection: dict, audit_path: Path, requested_limit: int):
     selected_scope = selection["selected_scope"] or {}
     applications = selection["applications"]
+    selection_mode = selection.get("selection_mode", FOCUSED_GROUP_MODE)
 
-    st.write("Selected scope")
-    st.json(selected_scope)
-    st.metric("Selected applications", len(applications))
+    st.write("Selection summary")
+    summary = {
+        "Requested limit": requested_limit,
+        "Eligible applications found": selection.get("available_candidates", 0),
+        "Selected applications": len(applications),
+        "Selection mode": selection_mode,
+        "Expected new API events": len(applications) * len(PLANNED_STAGE_SEQUENCE),
+    }
+
+    if selection_mode == FOCUSED_GROUP_MODE:
+        summary["Eligible applications in selected group"] = selection.get(
+            "selected_group_candidates",
+            0,
+        )
+
+    st.json(summary)
+
+    if selection_mode == FOCUSED_GROUP_MODE:
+        st.write("Selected scope")
+        st.json(selected_scope)
+    else:
+        st.write("Breakdown by recruiter / office / department")
+        st.json(_build_scope_breakdown(applications))
+
     st.write("First 10 application IDs")
     st.code(", ".join(str(app["application_id"]) for app in applications[:10]))
     st.caption(f"Audit file: {audit_path}")
@@ -329,39 +418,72 @@ def render_demo_controls():
             value=os.getenv("MOCK_API_BASE_URL", DEFAULT_API_BASE_URL),
         )
         target_stage = st.text_input("Target stage", value=DEFAULT_TARGET_STAGE)
+        st.caption(f"Planned stage sequence: {' -> '.join(PLANNED_STAGE_SEQUENCE)}")
+        selection_mode = st.radio(
+            "Demo selection mode",
+            [FOCUSED_GROUP_MODE, GLOBAL_IMPACT_MODE],
+        )
+        if selection_mode == FOCUSED_GROUP_MODE:
+            st.caption("Best for showing a scoped dashboard impact with filters.")
+        else:
+            st.caption("Best for making KPI changes more visible across the full dashboard.")
         limit = st.number_input(
             "Application limit",
             min_value=10,
-            max_value=100,
-            value=80,
+            max_value=500,
+            value=100,
             step=10,
+            help="This is a maximum. The actual selected count depends on eligible applications.",
         )
 
         if st.button("Dry-run API simulation"):
             try:
-                selection = _load_demo_selection(api_base_url, target_stage, int(limit))
+                selection = _load_demo_selection(
+                    api_base_url,
+                    target_stage,
+                    int(limit),
+                    selection_mode,
+                )
                 audit_path = write_audit_payload(
                     mode="dry_run",
                     target_stage=target_stage,
                     limit=int(limit),
                     selected_scope=selection["selected_scope"],
                     applications=selection["applications"],
+                    selection_mode=selection_mode,
+                    available_candidates=selection["available_candidates"],
                 )
 
                 if selection["applications"]:
                     st.success("Dry-run completed without mutating the Mock API.")
-                    _render_selection_result(selection, audit_path)
                 else:
                     st.info("No active applications eligible for this target stage.")
+
+                _render_selection_result(selection, audit_path, int(limit))
             except RuntimeError as error:
                 st.error(str(error))
 
         if st.button("Apply API simulation"):
             try:
-                selection = _load_demo_selection(api_base_url, target_stage, int(limit))
+                selection = _load_demo_selection(
+                    api_base_url,
+                    target_stage,
+                    int(limit),
+                    selection_mode,
+                )
 
                 if not selection["applications"]:
+                    audit_path = write_audit_payload(
+                        mode="applied",
+                        target_stage=target_stage,
+                        limit=int(limit),
+                        selected_scope=selection["selected_scope"],
+                        applications=selection["applications"],
+                        selection_mode=selection_mode,
+                        available_candidates=selection["available_candidates"],
+                    )
                     st.info("No active applications eligible for this target stage.")
+                    _render_selection_result(selection, audit_path, int(limit))
                     return
 
                 api_results = apply_stage_changes(
@@ -375,20 +497,26 @@ def render_demo_controls():
                     limit=int(limit),
                     selected_scope=selection["selected_scope"],
                     applications=selection["applications"],
+                    selection_mode=selection_mode,
+                    available_candidates=selection["available_candidates"],
                     api_results=api_results,
                 )
 
                 success_count = sum(1 for result in api_results if result["success"])
-                st.success(f"API simulation applied to {success_count} applications.")
-                _render_selection_result(selection, audit_path)
+                st.success(f"API simulation applied with {success_count} stage-change events.")
+                _render_selection_result(selection, audit_path, int(limit))
             except RuntimeError as error:
                 st.error(str(error))
 
         if get_demo_flag("ALLOW_LOCAL_PIPELINE_TRIGGER"):
+            st.warning(
+                "This demo writes to *_demo BigQuery datasets only. Production marts are not modified."
+            )
+
             if st.button("Run local ELT pipeline"):
                 try:
                     result = subprocess.run(
-                        ["./scripts/run_recruitment_pipeline.sh"],
+                        ["./scripts/run_recruitment_pipeline_demo.sh"],
                         cwd=REPO_ROOT,
                         capture_output=True,
                         text=True,
@@ -415,6 +543,6 @@ def render_demo_controls():
         else:
             st.info(
                 "Pipeline trigger is disabled. Run the pipeline manually through "
-                "Airflow or ./scripts/run_recruitment_pipeline.sh, or set "
+                "Airflow or ./scripts/run_recruitment_pipeline_demo.sh, or set "
                 "ALLOW_LOCAL_PIPELINE_TRIGGER=true locally."
             )

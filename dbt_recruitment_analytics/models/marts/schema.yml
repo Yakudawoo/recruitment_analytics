@@ -64,3 +64,16 @@ models:
       - name: sla_target_days
         tests:
           - not_null
+
+  - name: mart_time_to_hire_diagnostics
+    description: "Diagnostic table proving Avg Time to Hire is calculated over hired applications with valid dates."
+    columns:
+      - name: generated_at
+        tests:
+          - not_null
+      - name: total_hired_applications
+        tests:
+          - not_null
+      - name: hired_applications_with_valid_time_to_hire
+        tests:
+          - not_null

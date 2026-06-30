@@ -29,7 +29,7 @@ RESOURCE_TO_RAW_TABLE = {
 def require_env_vars() -> None:
     missing = []
 
-    for variable in ["GCP_PROJECT_ID", "BQ_RAW_DATASET", "MOCK_GREENHOUSE_BASE_URL"]:
+    for variable in ["GCP_PROJECT_ID", "MOCK_GREENHOUSE_BASE_URL"]:
         if not os.getenv(variable):
             missing.append(variable)
 
@@ -63,6 +63,28 @@ def build_raw_dataframe(
     df["_loaded_by"] = "workato_api_sync_simulator"
 
     return df
+
+
+def normalize_application_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized_records = []
+
+    for record in records:
+        normalized_record = dict(record)
+        status = str(
+            normalized_record.get("ghap_status")
+            or normalized_record.get("status")
+            or ""
+        ).lower()
+        normalized_record["ghap_hired_at"] = (
+            normalized_record.get("ghap_last_activity_at")
+            or normalized_record.get("last_activity_at")
+            or normalized_record.get("updated_at")
+            if status == "hired"
+            else None
+        )
+        normalized_records.append(normalized_record)
+
+    return normalized_records
 
 
 def load_dataframe_to_bigquery(
@@ -117,9 +139,14 @@ def main() -> None:
 
     for resource_name, records in resources.items():
         table_name = RESOURCE_TO_RAW_TABLE[resource_name]
+        raw_records = (
+            normalize_application_records(records)
+            if resource_name == "applications"
+            else records
+        )
 
         df = build_raw_dataframe(
-            records=records,
+            records=raw_records,
             source_object=resource_name,
             batch_id=batch_id,
         )

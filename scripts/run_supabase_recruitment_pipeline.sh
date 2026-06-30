@@ -10,6 +10,8 @@ OVERRIDE_BQ_RAW_DATASET="${BQ_RAW_DATASET:-}"
 OVERRIDE_BQ_STG_DATASET="${BQ_STG_DATASET:-}"
 OVERRIDE_BQ_CORE_DATASET="${BQ_CORE_DATASET:-}"
 OVERRIDE_BQ_MARTS_DATASET="${BQ_MARTS_DATASET:-}"
+OVERRIDE_BQ_LOCATION="${BQ_LOCATION:-}"
+OVERRIDE_USE_SUPABASE_OPERATIONAL_SOURCE="${USE_SUPABASE_OPERATIONAL_SOURCE:-}"
 
 if [ -f .env ]; then
   set -a
@@ -21,18 +23,24 @@ export BQ_RAW_DATASET="${OVERRIDE_BQ_RAW_DATASET:-${BQ_RAW_DATASET:-raw_greenhou
 export BQ_STG_DATASET="${OVERRIDE_BQ_STG_DATASET:-${BQ_STG_DATASET:-stg_greenhouse}}"
 export BQ_CORE_DATASET="${OVERRIDE_BQ_CORE_DATASET:-${BQ_CORE_DATASET:-core_greenhouse}}"
 export BQ_MARTS_DATASET="${OVERRIDE_BQ_MARTS_DATASET:-${BQ_MARTS_DATASET:-marts_recruitment}}"
+export BQ_LOCATION="${OVERRIDE_BQ_LOCATION:-${BQ_LOCATION:-EU}}"
+export USE_SUPABASE_OPERATIONAL_SOURCE="${OVERRIDE_USE_SUPABASE_OPERATIONAL_SOURCE:-${USE_SUPABASE_OPERATIONAL_SOURCE:-false}}"
 
+if [ "$USE_SUPABASE_OPERATIONAL_SOURCE" != "true" ]; then
+  echo "Refusing to run: USE_SUPABASE_OPERATIONAL_SOURCE must be true."
+  exit 1
+fi
+
+echo "Using Supabase operational source"
 echo "Using BigQuery datasets:"
 echo "  RAW:   $BQ_RAW_DATASET"
 echo "  STG:   $BQ_STG_DATASET"
 echo "  CORE:  $BQ_CORE_DATASET"
 echo "  MARTS: $BQ_MARTS_DATASET"
+echo "  LOCATION: $BQ_LOCATION"
 
-echo "Checking Mock Greenhouse API health..."
-curl -sf "$MOCK_GREENHOUSE_BASE_URL/health" > /dev/null
-
-echo "Loading Greenhouse API data to BigQuery RAW..."
-.venv/bin/python -m ingestion.load_greenhouse_api_to_bigquery
+echo "Loading Supabase operational tables to BigQuery RAW..."
+.venv/bin/python -m ingestion.load_supabase_operational_to_bigquery
 
 echo "Running dbt staging models..."
 .venv/bin/dbt run \
@@ -57,4 +65,4 @@ echo "Running dbt tests..."
   --project-dir dbt_recruitment_analytics \
   --profiles-dir dbt_recruitment_analytics
 
-echo "Recruitment analytics pipeline completed successfully."
+echo "Supabase recruitment analytics pipeline completed successfully."

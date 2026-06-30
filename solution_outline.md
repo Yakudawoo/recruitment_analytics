@@ -1,101 +1,66 @@
 # Recruitment Analytics Solution Outline
 
-## 1. Objective
+## 1. Problem Statement
 
-The objective is to provide HR managers with a custom recruitment analytics solution on top of Greenhouse-like recruitment data.
+Recruitment teams need a reliable way to monitor funnel health, recruiter workload, SLA compliance, and hiring outcomes across offices and departments.
 
-The solution focuses on:
+The key challenge is to separate operational actions from analytics: source-of-truth changes should happen in the operational system, while BigQuery should remain the analytical warehouse consumed by reporting marts.
 
-- recruitment funnel visibility;
-- application status distribution;
-- office and department-level analysis;
-- recruiter workload;
-- recruiter responsiveness;
-- SLA breach detection.
+## 2. Proposed Solution
 
-## 2. Dashboard capabilities
+I implemented a production-like workflow aligned with Teads' stack.
 
-The dashboard provides the following capabilities:
+The demo provides:
 
-1. Application status distribution by office and department.
-2. Recruitment funnel by stage.
-3. Executive overview of jobs, applications, offers and hires.
-4. Recruiter workload monitoring.
-5. Recruiter SLA compliance on recruiter-owned stages.
-6. Recruiter SLA breach detection at application level.
-7. Average recruiter response time by stage.
-8. Office, department and recruiter filtering.
+- a Greenhouse-like generated recruitment dataset;
+- a Mock Greenhouse API;
+- a Supabase operational source-of-truth layer;
+- Supabase Auth and app roles;
+- controlled admin workflows with dry-run, approve, apply, and auditability;
+- Airflow orchestration;
+- BigQuery analytics layers;
+- dbt staging/core/marts transformations;
+- a Streamlit dashboard deployed on Hugging Face.
 
-## 3. Target architecture
+## 3. Data Architecture
 
-Greenhouse API / Webhooks  
-→ Workato recipes  
-→ BigQuery RAW  
-→ Airflow orchestration  
-→ dbt STAGING / CORE / MARTS  
-→ Looker dashboard  
+Implemented demo architecture:
 
-## 4. Implemented demo architecture
+```text
+Generated dataset / Mock Greenhouse API
+    -> Supabase operational source of truth
+    -> Airflow orchestration
+    -> BigQuery RAW
+    -> dbt STAGING
+    -> dbt CORE
+    -> dbt MARTS
+    -> Streamlit dashboard
+```
 
-Mock Greenhouse API  
-→ Workato API Sync Simulator  
-→ BigQuery RAW  
-→ Airflow orchestration  
-→ dbt STAGING  
-→ dbt CORE  
-→ dbt MARTS  
-→ Streamlit Dashboard on Hugging Face  
+Target production mapping:
 
-The provided Excel and JSON files are only used to seed the Mock Greenhouse API.
+```text
+Greenhouse API / Webhooks
+    -> Workato recipes
+    -> BigQuery
+    -> Airflow / dbt
+    -> Looker or BI layer
+```
 
-The dashboard does not read Excel directly. The downstream pipeline consumes API-like endpoints and event-like payloads, loads BigQuery RAW tables, transforms the data with dbt, and serves dashboard-ready marts.
+I did not use real Workato recipes; I simulated the ingestion/orchestration pattern. I did not implement Looker; Streamlit is the demo BI layer.
 
-## 5. Component ownership
+## 4. Analytics Layer
 
-| Component | Main owner | Comment |
-|---|---|---|
-| Greenhouse source system | HR / Business Apps | Source system and business workflow |
-| Workato recipes | Integration Team | Production API/webhook integration |
-| BigQuery RAW | Data Engineer | Landing layer and ingestion metadata |
-| dbt staging/core/marts | Data Engineer | Data modeling and transformation |
-| Airflow DAG | Data Engineer / Data Platform | Pipeline orchestration |
-| KPI definitions | HR + Data Engineer | Business validation and technical implementation |
-| Looker dashboard | BI / Analytics Team | Production visualization layer |
-| Streamlit mockup | Data Engineer | Exercise dashboard demo |
+BigQuery is treated as the analytics warehouse, not as an operational source.
 
-## 6. BigQuery data model
+Data is organized into:
 
-The model is organized into RAW, STAGING, CORE and MARTS layers.
+- RAW: source-aligned ingested data.
+- STAGING: cleaning, renaming, typing, timestamp normalization.
+- CORE: analytical entities and facts.
+- MARTS: dashboard-ready business tables.
 
-### RAW
-
-Source-aligned Greenhouse-like tables with ingestion metadata.
-
-### STAGING
-
-Technical cleaning layer:
-
-- column renaming;
-- type casting;
-- timestamp normalization;
-- one staging model per source table.
-
-### CORE
-
-Analytical business model:
-
-- `dim_job`
-- `dim_candidate`
-- `dim_recruiter`
-- `dim_office`
-- `dim_department`
-- `fact_application`
-- `fact_offer`
-- `fact_stage_transition`
-
-### MARTS
-
-Dashboard-ready tables:
+Main marts:
 
 - `mart_hr_executive_overview`
 - `mart_hr_executive_overview_by_office_department`
@@ -105,124 +70,142 @@ Dashboard-ready tables:
 - `mart_recruiter_workload`
 - `mart_recruiter_performance`
 - `mart_sla_breaches`
+- `mart_time_to_hire_diagnostics` when present
 
-## 7. Main table relationships
+BigQuery location is kept in the EU with `BQ_LOCATION=EU`.
 
-The main analytical relationships are:
+## 5. Operational Workflow Extension
 
-```text
-fact_application
-    → dim_candidate
-    → dim_job
-    → dim_recruiter
-    → dim_office
-    → dim_department
+Supabase is used to demonstrate controlled operational changes with authentication, roles, dry-runs, approvals, and auditability.
 
-fact_stage_transition
-    → fact_application
-    → recruiter / office / department context
+Implemented workflows:
 
-fact_offer
-    → fact_application
-These relationships allow the dashboard to analyze applications, offers, stage movements and recruiter responsiveness by office, department and recruiter.
+1. Stage-change workflow
+   - Changes recruitment stages only.
+   - Excludes `Hired` and `Rejected` from stages.
+   - Supports candidate/application search and manual selection.
+   - Follows dry-run -> approve -> apply.
 
-8. Recruiter SLA logic
+2. Hiring outcome workflow
+   - Marks eligible active applications as `hired`.
+   - Treats `Hired` as a terminal outcome/status.
+   - After analytics refresh, Hired increases and Active decreases.
 
-Recruiter-owned stages:
+3. Rejection outcome workflow
+   - Marks eligible active applications as `rejected`.
+   - Treats `Rejected` as a terminal outcome/status.
+   - Supports business reasons such as reference check inconclusive or process stopped.
+   - After analytics refresh, Rejected increases and Active decreases.
 
-Application Review
-Recruiter Interview
+The admin UI exposes business-readable candidate rows. Technical identifiers remain available in audit sections.
+
+## 6. Dashboard Capabilities
+
+The Streamlit dashboard includes:
+
+- executive overview;
+- application status distribution;
+- recruitment funnel;
+- recruiter workload;
+- recruiter responsiveness and performance;
+- SLA compliance;
+- SLA breach details;
+- time-to-hire analysis;
+- office and department filtering;
+- candidate-level drilldowns where available.
+
+## 7. SLA Logic
+
+Recruiter-owned stages include:
+
+- `Application Review`
+- `Recruiter Interview`
 
 SLA target:
 
-maximum 3 days per recruiter-owned stage.
+- maximum 3 days per recruiter-owned stage.
 
-Method:
+The model uses stage transition events to calculate time spent in each SLA-tracked stage, flag breaches, and aggregate compliance by recruiter, office, and department.
 
-calculate the time spent in each recruiter-owned stage using stage transition events;
-flag each case as SLA met or breached;
-expose SLA breaches at application level;
-aggregate recruiter responsiveness by recruiter, office and department.
-9. Data quality and orchestration
+Rejections are not forced to change SLA metrics artificially. SLA metrics change only if the rejected application closes or affects an SLA-tracked stage.
 
-The pipeline includes:
+## 8. Recruiter Workload and Performance Logic
 
-Airflow orchestration;
-dbt transformations;
-dbt data quality tests;
-BigQuery mart tables consumed by the dashboard.
+Recruiter workload focuses on active recruitment activity and recruiter-owned responsibilities. Outcome changes such as hired or rejected candidates can reduce active workload after Supabase changes are ingested and dbt marts are rebuilt.
 
-Final dbt test result:
+Recruiter performance and responsiveness are derived from stage movement and timing data. The dashboard supports filtering by organizational scope to identify workload concentration and bottlenecks.
 
-PASS=71
-WARN=0
-ERROR=0
-TOTAL=71
+## 9. Productionization Path
 
-Airflow orchestrates:
+To productionize this pattern:
 
-Mock Greenhouse API health check.
-API-to-BigQuery RAW ingestion.
-dbt staging models.
-dbt core models.
-dbt marts.
-dbt tests.
-10. Demo links
+1. Replace the Mock Greenhouse API with real Greenhouse API/webhooks.
+2. Replace the custom demo sync with Workato recipes.
+3. Keep BigQuery as the analytical warehouse.
+4. Keep Airflow/dbt for orchestration and transformations.
+5. Move the BI layer to Looker or another governed BI tool if required.
+6. Harden authentication, service accounts, secrets management, monitoring, and alerting.
 
-Live dashboard:
+## 10. Security and Governance
 
-https://huggingface.co/spaces/OK-Fintech/recruitment-analytics-dashboard
+The demo includes:
 
-GitHub repository:
+- Supabase Auth;
+- app roles;
+- guarded admin workflows;
+- dry-run before mutation;
+- explicit approval before apply;
+- audit logs and request IDs;
+- environment-variable gates for admin actions and Airflow triggers.
 
-https://github.com/Yakudawoo/recruitment_analytics.git
+Security principles:
 
-11. Limitations and next steps
+- Do not commit `.env` files or service account JSON files.
+- Do not expose `SUPABASE_SERVICE_ROLE_KEY` in Streamlit.
+- Do not write operational mutations directly to BigQuery.
+- Use temporary roles for external reviewers and revoke them after testing.
 
-Next production steps:
+## 11. Demo Scenario
 
-replace Mock Greenhouse API with real Greenhouse API and webhooks;
-replace Workato simulator with production Workato recipes;
-move the dashboard layer to Looker if required;
-make SLA targets configurable in BigQuery;
-add incremental loading and operational monitoring.
+Recommended hiring scenario:
 
-## 12. Larger synthetic dataset update
+1. Open the dashboard and show current KPIs.
+2. Open the Supabase hiring outcome workflow.
+3. Show eligible hiring candidates.
+4. Select a demo candidate or manually search/select one.
+5. Enter a reason.
+6. Create dry-run.
+7. Approve.
+8. Apply.
+9. Trigger Airflow analytics refresh from Streamlit.
+10. Wait for Airflow success.
+11. Click `Refresh BigQuery data`.
+12. Confirm Hired increased and Active decreased.
 
-Following initial feedback, the dashboard was updated with a larger synthetic Greenhouse-like dataset to make the HR-facing demo more representative.
+Optional scenarios:
 
-The larger dataset includes:
+- rejection outcome workflow;
+- stage-change workflow;
+- recruiter workload/SLA impact after refresh.
 
-- 120 jobs;
-- 1,800 candidates;
-- 2,500 applications;
-- several thousand application stage events;
-- offers, recruiters, offices and departments linked consistently.
+## 12. Implemented vs Production Target
 
-This dataset preserves the same structure as the original exercise data and keeps the same ingestion and transformation logic:
+Implemented:
 
-Mock Greenhouse API  
-→ Workato API Sync Simulator  
-→ BigQuery RAW  
-→ dbt STAGING  
-→ dbt CORE  
-→ dbt MARTS  
-→ Streamlit Dashboard  
+- generated Greenhouse-like dataset;
+- Mock Greenhouse API;
+- Supabase operational source-of-truth simulation;
+- Supabase Auth and role model;
+- controlled stage-change, hiring, and rejection workflows;
+- candidate search and eligibility logic;
+- Airflow DAG trigger through REST API from Streamlit;
+- Supabase to BigQuery ingestion;
+- dbt layers and dashboard marts;
+- Streamlit dashboard on Hugging Face.
 
-The original files provided for the exercise are still preserved. The larger dataset is generated separately and can be selected through the mock API dataset profile.
+Production target equivalent:
 
-## 13. Local API simulation demo
-
-A local-only API simulation was added to demonstrate that the dashboard is not based on a static Excel extract.
-
-The simulation triggers controlled stage-change events through the Mock Greenhouse API. The ingestion script then reloads the updated API data into BigQuery RAW, dbt rebuilds the analytical layers, and the dashboard reflects the updated mart tables after refresh.
-
-The demo uses completed stage transitions:
-
-```text
-Reference Check
-    ↓
-Offer
-This makes the Reference Check stage visible in the recruitment funnel while avoiding artificial hires or rejections.
-
-The simulation controls are hidden by default and are not enabled on the public Hugging Face dashboard. The public dashboard remains read-only, except for the Refresh BigQuery data button which only clears Streamlit cache and reloads BigQuery mart tables.
+- Greenhouse API/webhooks instead of Mock Greenhouse API;
+- Workato recipes instead of demo ingestion/sync patterns;
+- Looker or another BI layer instead of Streamlit if required;
+- managed secrets, service accounts, monitoring, audit controls, and environment-specific deployment permissions.

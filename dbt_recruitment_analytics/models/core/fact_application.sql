@@ -16,6 +16,26 @@ select
     applications.applied_at,
     applications.rejected_at,
     applications.last_activity_at,
+    case
+        when applications.application_status = 'hired'
+        then coalesce(applications.hired_at, applications.last_activity_at)
+    end as hired_at,
+
+    case
+        when applications.application_status = 'hired'
+            and applications.applied_at is not null
+            and coalesce(applications.hired_at, applications.last_activity_at) is not null
+            and timestamp_diff(
+                coalesce(applications.hired_at, applications.last_activity_at),
+                applications.applied_at,
+                day
+            ) >= 0
+        then timestamp_diff(
+            coalesce(applications.hired_at, applications.last_activity_at),
+            applications.applied_at,
+            day
+        )
+    end as time_to_hire_days,
 
     applications.jobs_count,
 

@@ -29,13 +29,19 @@ application_metrics as (
         countif(is_active) as active_applications,
         countif(is_rejected) as rejected_applications,
         countif(is_hired) as hired_applications,
+        countif(is_hired and time_to_hire_days is not null) as hired_applications_with_valid_time_to_hire,
+        countif(
+            is_hired
+            and application_source = 'supabase_operational_source'
+            and time_to_hire_days is not null
+        ) as supabase_outcome_hired_applications_with_valid_time_to_hire,
+        countif(
+            is_hired
+            and coalesce(application_source, '') != 'supabase_operational_source'
+            and time_to_hire_days is not null
+        ) as historical_hired_applications_with_valid_time_to_hire,
 
-        avg(
-            case
-                when is_hired and applied_at is not null and last_activity_at is not null
-                then timestamp_diff(last_activity_at, applied_at, day)
-            end
-        ) as avg_time_to_hire_days
+        avg(case when is_hired then time_to_hire_days end) as avg_time_to_hire_days
 
     from applications
 
@@ -88,6 +94,9 @@ select
     application_metrics.active_applications,
     application_metrics.rejected_applications,
     application_metrics.hired_applications,
+    application_metrics.hired_applications_with_valid_time_to_hire,
+    application_metrics.historical_hired_applications_with_valid_time_to_hire,
+    application_metrics.supabase_outcome_hired_applications_with_valid_time_to_hire,
     application_metrics.avg_time_to_hire_days,
 
     offer_metrics.total_offers,

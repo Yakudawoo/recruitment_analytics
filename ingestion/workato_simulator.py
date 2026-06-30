@@ -31,7 +31,7 @@ SHEET_TO_RAW_TABLE = {
 def require_env_vars():
     missing = []
 
-    for variable in ["GCP_PROJECT_ID", "BQ_RAW_DATASET"]:
+    for variable in ["GCP_PROJECT_ID"]:
         if not os.getenv(variable):
             missing.append(variable)
 

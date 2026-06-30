@@ -3,7 +3,7 @@ version: 2
 sources:
   - name: greenhouse_raw
     database: "{{ env_var('GCP_PROJECT_ID') }}"
-    schema: raw_greenhouse
+    schema: "{{ env_var('BQ_RAW_DATASET', 'raw_greenhouse') }}"
     description: "Raw Greenhouse data loaded from API and webhook payloads."
 
     tables:

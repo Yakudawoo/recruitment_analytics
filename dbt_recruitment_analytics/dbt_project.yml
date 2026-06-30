@@ -16,10 +16,10 @@ models:
   recruitment_analytics:
     staging:
       +materialized: view
-      +schema: "{{ env_var('BQ_STAGING_DATASET') }}"
+      +schema: "{{ env_var('BQ_STG_DATASET', 'stg_greenhouse') }}"
     core:
       +materialized: table
-      +schema: "{{ env_var('BQ_CORE_DATASET') }}"
+      +schema: "{{ env_var('BQ_CORE_DATASET', 'core_greenhouse') }}"
     marts:
       +materialized: table
-      +schema: "{{ env_var('BQ_MARTS_DATASET') }}"
+      +schema: "{{ env_var('BQ_MARTS_DATASET', 'marts_recruitment') }}"

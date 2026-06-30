@@ -6,6 +6,7 @@ select
     safe_cast(ghap_applied_at as timestamp) as applied_at,
     safe_cast(ghap_rejected_at as timestamp) as rejected_at,
     safe_cast(ghap_last_activity_at as timestamp) as last_activity_at,
+    safe_cast(ghap_hired_at as timestamp) as hired_at,
 
     ghap_source as application_source,
     ghap_rejection_reason as rejection_reason,
