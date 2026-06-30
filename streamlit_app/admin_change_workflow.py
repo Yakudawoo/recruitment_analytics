@@ -370,8 +370,14 @@ def airflow_api_request(
     debug_status_key: str | None = None,
     allow_auth_retry: bool = True,
 ) -> dict[str, Any]:
+    request_url = f"{get_airflow_api_base_url()}{path}"
+    is_status_request = debug_status_key == "airflow_last_status_check_status_code"
+
+    if is_status_request:
+        store_airflow_debug_value("airflow_status_endpoint_url_without_token", request_url)
+
     request = urllib.request.Request(
-        f"{get_airflow_api_base_url()}{path}",
+        request_url,
         data=json.dumps(payload).encode("utf-8") if payload is not None else None,
         headers=get_airflow_api_headers(),
         method=method,
@@ -384,6 +390,14 @@ def airflow_api_request(
 
             if debug_status_key:
                 store_airflow_debug_value(debug_status_key, status_code)
+
+            if is_status_request:
+                store_airflow_debug_value(
+                    "airflow_last_status_response_preview",
+                    redact_airflow_secret_text(body)[:300],
+                )
+                st.session_state.pop("airflow_last_status_exception_type", None)
+                st.session_state.pop("airflow_last_status_exception_message", None)
 
             if not body:
                 return {}
@@ -404,7 +418,7 @@ def airflow_api_request(
 
         if error.code in {401, 403} and allow_auth_retry:
             retry_request = urllib.request.Request(
-                f"{get_airflow_api_base_url()}{path}",
+                request_url,
                 data=json.dumps(payload).encode("utf-8") if payload is not None else None,
                 headers=get_airflow_api_headers(force_refresh_token=True),
                 method=method,
@@ -418,6 +432,17 @@ def airflow_api_request(
                     if debug_status_key:
                         store_airflow_debug_value(debug_status_key, status_code)
 
+                    if is_status_request:
+                        store_airflow_debug_value(
+                            "airflow_last_status_response_preview",
+                            redact_airflow_secret_text(body)[:300],
+                        )
+                        st.session_state.pop("airflow_last_status_exception_type", None)
+                        st.session_state.pop(
+                            "airflow_last_status_exception_message",
+                            None,
+                        )
+
                     return json.loads(body) if body else {}
             except urllib.error.HTTPError as retry_error:
                 detail = retry_error.read().decode("utf-8")
@@ -425,8 +450,31 @@ def airflow_api_request(
                 if debug_status_key:
                     store_airflow_debug_value(debug_status_key, retry_error.code)
 
+                if is_status_request:
+                    store_airflow_debug_value(
+                        "airflow_last_status_response_preview",
+                        redact_airflow_secret_text(detail)[:300],
+                    )
+                    store_airflow_debug_value(
+                        "airflow_last_status_exception_type",
+                        type(retry_error).__name__,
+                    )
+                    store_airflow_debug_value(
+                        "airflow_last_status_exception_message",
+                        redact_airflow_secret_text(str(retry_error)),
+                    )
+
                 raise RuntimeError(f"{retry_error.code} {detail}") from retry_error
             except urllib.error.URLError as retry_error:
+                if is_status_request:
+                    store_airflow_debug_value(
+                        "airflow_last_status_exception_type",
+                        type(retry_error.reason).__name__,
+                    )
+                    store_airflow_debug_value(
+                        "airflow_last_status_exception_message",
+                        redact_airflow_secret_text(str(retry_error.reason)),
+                    )
                 if is_ssl_url_error(retry_error):
                     raise RuntimeError(airflow_unreachable_message()) from retry_error
                 raise RuntimeError(str(retry_error.reason)) from retry_error
@@ -436,8 +484,31 @@ def airflow_api_request(
                 "Airflow rejected the DAG trigger payload. Check logical_date "
                 f"and dag_run_id. {detail}"
             ) from error
+        if is_status_request:
+            store_airflow_debug_value(
+                "airflow_last_status_response_preview",
+                redact_airflow_secret_text(detail)[:300],
+            )
+            store_airflow_debug_value(
+                "airflow_last_status_exception_type",
+                type(error).__name__,
+            )
+            store_airflow_debug_value(
+                "airflow_last_status_exception_message",
+                redact_airflow_secret_text(str(error)),
+            )
+
         raise RuntimeError(f"{error.code} {detail}") from error
     except urllib.error.URLError as error:
+        if is_status_request:
+            store_airflow_debug_value(
+                "airflow_last_status_exception_type",
+                type(error.reason).__name__,
+            )
+            store_airflow_debug_value(
+                "airflow_last_status_exception_message",
+                redact_airflow_secret_text(str(error.reason)),
+            )
         if is_ssl_url_error(error):
             raise RuntimeError(airflow_unreachable_message()) from error
         raise RuntimeError(str(error.reason)) from error
@@ -596,6 +667,9 @@ def render_airflow_api_debug():
                 "auth_endpoint_path": "/auth/token",
                 "dag_trigger_endpoint_path": f"/api/v2/dags/{dag_id}/dagRuns",
                 "status_endpoint_path": status_endpoint,
+                "status_endpoint_url_without_token": st.session_state.get(
+                    "airflow_status_endpoint_url_without_token"
+                ),
                 "last_auth_status_code": st.session_state.get(
                     "airflow_last_auth_status_code"
                 ),
@@ -604,6 +678,18 @@ def render_airflow_api_debug():
                 ),
                 "last_status_check_status_code": st.session_state.get(
                     "airflow_last_status_check_status_code"
+                ),
+                "status_check_status_code": st.session_state.get(
+                    "airflow_last_status_check_status_code"
+                ),
+                "status_check_response_preview": st.session_state.get(
+                    "airflow_last_status_response_preview"
+                ),
+                "status_check_exception_type": st.session_state.get(
+                    "airflow_last_status_exception_type"
+                ),
+                "status_check_exception_message": st.session_state.get(
+                    "airflow_last_status_exception_message"
                 ),
                 "last_dag_run_id": dag_run_id,
                 "token_source": st.session_state.get("airflow_token_source"),
@@ -632,6 +718,7 @@ def render_airflow_status_panel():
     last_checked_at = st.session_state.get("airflow_last_checked_at")
     started_at = st.session_state.get("airflow_started_at")
     monitoring_enabled = bool(st.session_state.get("airflow_monitoring_enabled"))
+    last_response = st.session_state.get("airflow_last_response", {}) or {}
 
     st.write("Airflow analytics refresh status")
     status_col, action_col = st.columns([2, 1])
@@ -640,8 +727,11 @@ def render_airflow_status_panel():
         st.json(
             {
                 "dag_id": DEMO_AIRFLOW_DAG_ID,
-                "dag_run_id": dag_run_id,
+                "dag_run_id": last_response.get("dag_run_id") or dag_run_id,
                 "state": state,
+                "start_date": last_response.get("start_date"),
+                "end_date": last_response.get("end_date"),
+                "logical_date": last_response.get("logical_date"),
                 "last_checked_at": last_checked_at or "Not checked yet",
                 "elapsed_time": format_elapsed_time(started_at),
                 "monitoring": "enabled" if monitoring_enabled else "stopped",
@@ -672,6 +762,10 @@ def render_airflow_status_panel():
         st.error("Airflow analytics refresh was canceled. Open Airflow logs for details.")
         with st.expander("Airflow DAG run debug payload"):
             st.json(st.session_state.get("airflow_last_response", {}))
+    elif state == "queued":
+        st.info("Airflow DAG run is queued.")
+    elif state == "running":
+        st.info("Airflow DAG run is running.")
     elif monitoring_enabled and state in AIRFLOW_ACTIVE_STATES | {"unknown"}:
         st.info("Monitoring Airflow run automatically every 10 seconds.")
 
@@ -3012,11 +3106,26 @@ def render_airflow_analytics_refresh(user_email: str):
                 )
 
             st.success("Airflow DAG run was triggered successfully.")
+
+            if dag_run_id:
+                try:
+                    status_response = check_airflow_status_once(str(dag_run_id))
+                    st.session_state.pop("airflow_last_status_error", None)
+                    response = status_response
+                except RuntimeError as status_error:
+                    st.session_state["airflow_last_status_error"] = str(status_error)
+                    st.warning(
+                        "DAG was triggered, but Streamlit could not retrieve the "
+                        "latest status."
+                    )
+
             st.json(
                 {
                     "dag_run_id": dag_run_id,
                     "logical_date": response.get("logical_date"),
                     "state": response.get("state"),
+                    "start_date": response.get("start_date"),
+                    "end_date": response.get("end_date"),
                 }
             )
         except RuntimeError as error:
